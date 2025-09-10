@@ -1,5 +1,4 @@
 import pandas as pd
-
 try:
     import yfinance as yf
     HAS_YF = True
@@ -33,8 +32,7 @@ def load_prices(days: int = 260) -> pd.DataFrame:
         except Exception as e:
             print(f"[warn] Échec téléchargement {name} ({ticker}) -> {e}")
 
-    if len(data) == 0:
-        return pd.DataFrame(data)
+    return pd.concat(data, axis=1) if len(data) > 0 else pd.DataFrame()
 
 if __name__ == "__main__":
     df = load_prices(30)

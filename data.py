@@ -1,45 +1,46 @@
+# ==========================================================
+# DATA.PY — STEP 1 OF THE ECB PROJECT
+# GOAL: Download market prices from Yahoo Finance
+# ==========================================================
+
+
 import pandas as pd
-try:
-    import yfinance as yf
-    HAS_YF = True
-except Exception:
-    HAS_YF = False
-    
-TICKERS = {
-    "EUROSTOXX50": "^STOXX50E",
-    "EUFN": "EUFN",
-    "XLU": "XLU",
-    "EURUSD": "EURUSD=X",
-   # "DE02Y": "DE02Y-DE",# 
-   # "DE10Y": "DE10Y-DE",#
-}
+import numpy as np
+import yfinance as yf
+import matplotlib.pyplot as plt 
 
-def load_prices(days: int = 260) -> pd.DataFrame:
-    """Télécharge les clôtures quotidiennes. Si yfinance indispo, renvoie DataFrame vide."""
-    if not HAS_YF:
-        return pd.DataFrame()
-    data = {}
-    for name, ticker in TICKERS.items():
-        try:
-            df = yf.download(
-                ticker, period=f"{days}d", interval="1d", 
-                auto_adjust=True, progress=False
-                )
-            if df is not None and not df.empty and "Close" in df:
-                data[name] = df["Close"]
-            else:
-                print(f"[warn] Pas de données pour {name} ({ticker})")
-        except Exception as e:
-            print(f"[warn] Échec téléchargement {name} ({ticker}) -> {e}")
+# Function to load prices
+def load_prices(days=260):
 
-    return pd.concat(data, axis=1) if len(data) > 0 else pd.DataFrame()
+    """
+    Download market data for the last X days.
+    Returns a DataFrame with the columns: EUROSTOXX50, EUFN, XLU, EURUSD.
+    """
+    # Yahoo Finance tickers
+    tickers = {
+        "^STOXX50E": "EUROSTOXX50",  # EuroStoxx 50 index
+        "EUFN": "EUFN",              # European banks ETF
+        "XLU": "XLU",                # Utilities ETF
+        "EURUSD=X": "EURUSD"         # EUR/USD exchange rate
+    }
+
+    # Download adjusted close prices
+    data = yf.download(list(tickers.keys()), period=f"{days}d")["Close"]
+
+    # Rename columns with clearer names
+    data = data.rename(columns=tickers)
+    return data
 
 if __name__ == "__main__":
-    df = load_prices(30)
+
+    # Load the data
+    df = load_prices(260)
+
+    # Show the first 5 rows
     print(df.head())
 
-import matplotlib.pyplot as plt
-df = load_prices(180).ffill()
-df.plot()
-plt.title("Clôtures (ajustées)")
-plt.show()
+    # Plot prices
+    df.plot(figsize=(10,5), title="Market prices (levels)")
+    plt.show()
+
+    

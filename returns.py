@@ -1,22 +1,54 @@
+# ==========================================================
+# RETURNS.PY — STEP 2 OF THE ECB PROJECT
+# GOAL: Transform price levels into daily returns (variations)
+# ==========================================================
+
 import pandas as pd
-from data import load_prices
 
-def build_daily_changes(df: pd.DataFrame) -> pd.DataFrame:
+def daily_returns(df: pd.DataFrame) -> pd.DataFrame:
+
+    """
+    This function takes a DataFrame with market prices and transforms them into daily returns.
+    Returns = % changes from one day to the next.
+    """
+
+    # Create an empty DataFrame with the same dates as the input
     out = pd.DataFrame(index=df.index)
-    for c in ["EUROSTOXX50","EUFN","XLU","EURUSD"]:
+
+    # Calculate % return
+    for c in ["EUROSTOXX50", "EUFN", "XLU", "EURUSD"]:
         if c in df:
-            out[c] = df[c].pct_change()
-        return out.dropna()
+            out[c] = df[c].pct_change() # (today / yesterday - 1)
 
-cf = load_prices(240)
-chg = build_daily_changes(cf)
-print(chg.tail())
+    # For bond yields : the difference in basis points (1bp = 0.01%)
+    if "BUND_YLD" in df:
+        out["BUND_BP"] = df["BUND_YLD"].diff() * 100
+    
+    # Drop the first row
+    return out.dropna()
 
-chg = build_daily_changes(cf)   # <-- transforme prix en variations %
-chg.plot(figsize=(9,5))
-plt.title("Variations journalières (%)")
-plt.show()
+# ==========================================================
+# SIMPLE TEST (only runs if you launch this file directly)
+# ==========================================================
+if __name__ == "__main__":
+    # Example dataset with fake prices
+    data = {
+        "EUROSTOXX50": [4000, 4050, 3980, 4100],
+        "EUFN": [20, 21, 20.5, 21.2],
+        "XLU": [60, 59.5, 60.5, 61],
+        "EURUSD": [1.10, 1.11, 1.09, 1.12],
+        "BUND_YLD": [2.5, 2.6, 2.55, 2.7]
+    }
 
-if len(data) == 0:
-    return pd.DataFrame()
-return pd.DataFrame(data)
+    # Create a DataFrame with dates as index
+    dates = pd.date_range(start="2025-09-01", periods=4, freq="D")
+    df = pd.DataFrame(data, index=dates)
+
+    print("=== Original prices ===")
+    print(df)
+
+    # Apply the function
+    returns = daily_returns(df)
+
+    print("\n=== Daily changes ===")
+    print(returns)

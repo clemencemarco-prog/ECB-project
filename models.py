@@ -15,7 +15,7 @@ import statsmodels.api as sm
 #    (keeps only columns that exist)
 # ----------------------------------------------------------
 
-def betas(changes: pd.DataFrame, maclags: int = 5) -> pd.DataFrame:
+def betas(changes: pd.DataFrame, maxlags: int = 5) -> pd.DataFrame:
 
     """
     Select factor columns from 'changes' to use in regressions.
@@ -40,41 +40,45 @@ def betas(changes: pd.DataFrame, maclags: int = 5) -> pd.DataFrame:
         y = changes[[asset]]
         X = changes[factor_list]
 
-        print("Assets found:", asset_list)
-        print("Factors found:", factor_list)
-        print("changes.columns:", list(changes.columns))
-
         data = pd.concat([y, X], axis=1).dropna()
 
-        print("data.columns:", list(data.columns))
-        print(data.head())
-
         y_clean = data[asset]
-        x_clean = data[factor_list]
+        X_clean = data[factor_list]
 
-        print("Asset:", asset)
-        print("y_clean.head()")
-        print(y_clean.head())  # 5 premières lignes
-
-        print("\nX_clean.head()")
-        print(x_clean.head())  # 5 premières lignes
-    
-    return pd.DataFrame(rows)
-
-#if __name__ == "__main__":
-#    from data import load_prices
-#    import pandas as pd
-    
-#    prices =  load_prices(days=260)
-#    changes = prices.pct_change().dropna()
-#    res = betas(changes)
-#    print(res.head())
+        # Add constant for alpha
+        X_const = sm.add_constant(X_clean, has_constant="raise")
 
 
+        # Fit OLS with HAC/Newey-West standard errors (robust to heteroskedasticity & autocorr)
+        res = sm.OLS(y_clean, X_const).fit(cov_type="HAC", cov_kwds={"maxlags": maxlags})
 
-# ----------------------------------------------------------
-# 2) Simple OLS with statsmodels
-#    - Align y and X on common dates
-#    - Add constant for alpha
-#    - Fit OLS with robust SE (HAC/Newey-West)
-# ----------------------------------------------------------
+
+        # Store results for each parameter
+        for param in res.params.index:  # 'const', 'EURUSD', 'BUND_BP', 'UST10Y_BP'
+            rows.append({
+                "asset": asset,
+                "param": param,
+                "coef": res.params[param],
+                "t": res.tvalues[param],
+                "p": res.pvalues[param],
+                "r2": res.rsquared,
+                "nobs": int(res.nobs),
+            })
+
+    out = pd.DataFrame(rows).set_index(["asset", "param"]).sort_index()
+    return out
+
+if __name__ == "__main__":
+    try:
+        from data import load_prices
+        from returns import daily_returns
+    except ImportError:
+        print("Tip: make sure data.py has load_prices() and returns.py has build_daily_changes().")
+        raise
+
+    prices = load_prices(days=260)
+    changes = daily_returns(prices)
+
+    results = betas(changes, maxlags=5)  # ~ 1 trading week
+    print("\n=== OLS betas (coef), t-stats (HAC), p-values (HAC) ===")
+    print(results.round(4))

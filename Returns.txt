@@ -1,0 +1,168 @@
+# ==========================================================
+# MODELS.PY — STEP 3: Estimate betas with statsmodels (OLS)
+# Goal:
+#   y (asset returns) = alpha + X * betas + error
+#   with robust standard errors (HAC/Newey-West)
+# ==========================================================
+
+import pandas as pd
+import numpy as np
+import statsmodels.api as sm
+
+# ----------------------------------------------------------
+# 1) Build the factor matrix X from the daily changes table
+#    (keeps only columns that exist)
+# ----------------------------------------------------------
+def build_X(changes: pd.DataFrame) -> pd.DataFrame:
+    """
+    Select factor columns from 'changes' to use in regressions.
+    Typical factors:
+      - EURUSD     (in % daily change)
+      - BUND_BP    (Bund 10Y daily change in basis points)
+      - UST10Y_BP  (UST 10Y daily change in basis points)
+    """
+    cols = []
+    if "EURUSD" in changes.columns:
+        cols.append("EURUSD")
+    if "BUND_BP" in changes.columns:
+        cols.append("BUND_BP")
+    if "UST10Y_BP" in changes.columns:
+        cols.append("UST10Y_BP")
+
+    if len(cols) == 0:
+        raise ValueError("No factor columns found. Need at least one of EURUSD / BUND_BP / UST10Y_BP.")
+
+    return changes[cols].copy()
+
+
+# ----------------------------------------------------------
+# 2) Simple OLS with statsmodels
+#    - Align y and X on common dates
+#    - Add constant for alpha
+#    - Fit OLS with robust SE (HAC/Newey-West)
+# ----------------------------------------------------------
+def simple_ols(y: pd.Series,
+               X: pd.DataFrame,
+               robust: str = "HAC",
+               maxlags: int = 5):
+    """
+    Estimate: y = alpha + X * betas + error
+
+    Parameters
+    ----------
+    y : pd.Series
+        Asset returns (e.g., EUROSTOXX50 daily % returns).
+    X : pd.DataFrame
+        Factor changes (e.g., EURUSD %, BUND_BP, UST10Y_BP).
+    robust : str
+        Robust SE type. Common choices:
+          - "HAC"  : Newey-West (handles autocorr + heteroskedasticity)
+          - "HC1"  : White robust (heteroskedasticity only)
+    maxlags : int
+        HAC lag length (e.g., 5 ~ one trading week).
+
+    Returns
+    -------
+    alpha : float
+    betas : pd.Series
+        Index = factor names, values = beta coefficients.
+    """
+    # 1) Align and drop NaNs so we regress on the same dates
+    data = pd.concat([y, X], axis=1).dropna()
+
+    # 2) Separate y and X
+    y_clean = data.iloc[:, 0]         # Series (target)
+    X_clean = data.iloc[:, 1:]        # DataFrame (factors)
+
+    # 3) Add constant for alpha (statsmodels will handle it)
+    X_const = sm.add_constant(X_clean, has_constant="add")  # creates a 'const' column of 1s
+
+    # 4) Fit OLS with robust SE
+    if robust.upper() == "HAC":
+        model = sm.OLS(y_clean, X_const, missing="drop").fit(
+            cov_type="HAC",
+            cov_kwds={"maxlags": maxlags}
+        )
+    elif robust.upper() == "HC1":
+        model = sm.OLS(y_clean, X_const, missing="drop").fit(cov_type="HC1")
+    else:
+        # Plain OLS (not robust) if you really want it
+        model = sm.OLS(y_clean, X_const, missing="drop").fit()
+
+    # 5) Extract alpha and betas
+    params = model.params
+    alpha = float(params["const"])
+    betas = params.drop(labels=["const"])
+
+    # (Optionnel) Tu peux inspecter t-stats / p-values si besoin :
+    # print(model.summary())
+
+    return alpha, betas
+
+
+# ----------------------------------------------------------
+# 3) Run OLS for a list of assets (default: major ones)
+#    Returns a dict: {asset: {"alpha": float, "betas": pd.Series}}
+# ----------------------------------------------------------
+def estimate_betas(changes: pd.DataFrame, assets=None,
+                   robust: str = "HAC", maxlags: int = 5):
+    """
+    For each asset column, run simple_ols against the factor set.
+    """
+    # Default asset list (keep only those present in 'changes')
+    if assets is None:
+        candidates = ["EUROSTOXX50", "EUFN", "XLU", "SP500"]
+        assets = [a for a in candidates if a in changes.columns]
+
+    # Build factor matrix X once
+    X = build_X(changes)
+
+    results = {}
+    for a in assets:
+        y = changes[a]
+        alpha, betas = simple_ols(y, X, robust=robust, maxlags=maxlags)
+        results[a] = {"alpha": alpha, "betas": betas}
+
+    return results
+
+
+# ----------------------------------------------------------
+# 4) Pretty table: rows=assets, cols=alpha + betas
+# ----------------------------------------------------------
+def results_table(results: dict) -> pd.DataFrame:
+    """
+    Turn {asset: {"alpha": float, "betas": Series}} into a DataFrame.
+    """
+    rows = []
+    for asset, stats in results.items():
+        row = {"asset": asset, "alpha": stats["alpha"]}
+        for k, v in stats["betas"].items():
+            row[f"beta_{k}"] = v
+        rows.append(row)
+
+    if not rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(rows).set_index("asset")
+    cols = ["alpha"] + [c for c in df.columns if c != "alpha"]
+    return df[cols]
+
+
+# ----------------------------------------------------------
+# Tiny demo: run this file directly to print a table
+# ----------------------------------------------------------
+if __name__ == "__main__":
+    from data import load_prices
+    from returns import build_daily_changes
+
+    # 1) Load prices and compute daily changes
+    prices = load_prices(days=260)
+    changes = build_daily_changes(prices)
+
+    # 2) Estimate betas with robust SEs (HAC, 5 lags)
+    res = estimate_betas(changes, assets=None, robust="HAC", maxlags=5)
+
+    # 3) Show the final table
+    table = results_table(res).round(4)
+    print("\n=== Betas (alpha + betas) — statsmodels OLS (robust) ===")
+    print(table)

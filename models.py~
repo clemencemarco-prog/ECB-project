@@ -1,0 +1,80 @@
+# ==========================================================
+# MODELS.PY — STEP 3: Estimate betas with statsmodels (OLS)
+# Multi-factor model:
+#   return_asset = alpha + b1*EURUSD + b2*BUND_BP + B3*UST10Y_BP + error
+#   with robust standard errors (HAC/Newey-West)
+#   Shows: beta (coef), t-stat, p-value, R2, N
+# ==========================================================
+
+import numpy as np
+import pandas as pd
+import statsmodels.api as sm
+
+# ----------------------------------------------------------
+# 1) Build the factor matrix X from the daily changes table
+#    (keeps only columns that exist)
+# ----------------------------------------------------------
+
+def betas(changes: pd.DataFrame, maclags: int = 5) -> pd.DataFrame:
+
+    """
+    Select factor columns from 'changes' to use in regressions.
+    Run the same OLS for several assets against available factors.
+    Assets: EUROSTOXX50, EUFN, XLU, SP500
+    Factors: EURUSD (in % daily change), BUND_BP (Bund 10Y daily change in basis points), UST10Y_BP (UST 10Y daily change in basis points)
+    Return a tidy DataFrame with coef, t, p, r2, nobs.
+    """
+    # Pick assets
+    asset_list = asset_list = [c for c in ["EUROSTOXX50", "EUFN", "XLU", "SP500"] if c in changes.columns]
+    if not asset_list:
+        raise ValueError("No known asset columns found (EUROSTOXX50, EUFN, XLU, SP500).")
+
+    # Pick factor
+    factor_list = [c for c in ["EURUSD", "BUND_BP", "UST10Y_BP"] if c in changes.columns]
+    if not factor_list:
+        raise ValueError("No factor columns found (EURUSD, BUND_BP, UST10Y_BP).")
+
+    rows = []
+    for asset in asset_list:
+        # Align y and X on the same dates and drop NaNs
+        y = changes[[asset]]
+        X = changes[factor_list]
+
+        print("Assets found:", asset_list)
+        print("Factors found:", factor_list)
+        print("changes.columns:", list(changes.columns))
+
+        data = pd.concat([y, X], axis=1).dropna()
+
+        print("data.columns:", list(data.columns))
+        print(data.head())
+
+        y_clean = data[asset]
+        x_clean = data[factor_list]
+
+        print("Asset:", asset)
+        print("y_clean.head()")
+        print(y_clean.head())  # 5 premières lignes
+
+        print("\nX_clean.head()")
+        print(x_clean.head())  # 5 premières lignes
+    
+    return pd.DataFrame(rows)
+
+if __name__ == "__main__":
+    from data import load_prices
+    import pandas as pd
+    
+    prices =  load_prices(days=260)
+    changes = prices.pct_change().dropna()
+    res = betas(changes)
+    print(res.head())
+
+
+
+# ----------------------------------------------------------
+# 2) Simple OLS with statsmodels
+#    - Align y and X on common dates
+#    - Add constant for alpha
+#    - Fit OLS with robust SE (HAC/Newey-West)
+# ----------------------------------------------------------

@@ -25,7 +25,7 @@ def load_prices(days=260):
     }
 
     # Download adjusted close prices
-    data = yf.download(list(tickers.keys()), period=f"{days}d", auto_adjust=True)["Close"]
+    data = yf.download(list(tickers.keys()), period=f"{days}d")["Close"]
 
     # Rename columns with clearer names
     data = data.rename(columns=tickers)
